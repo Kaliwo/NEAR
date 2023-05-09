@@ -22,14 +22,18 @@ const app = express();
 app.use(express.json()); // for parsing JSON request bodies
 
 // Endpoint for encrypting data
+// Endpoint for encrypting data
 app.post('/encrypt', async (req, res) => {
+  console.log('encrypt endpoint called with req.body:', req.body); // Add this line to log the request body
   const { data, publicKey } = req.body;
+  console.log('publicKey:', publicKey); // This line was added before
   const nonce = nacl.randomBytes(nacl.box.nonceLength);
+  const tempKeyPair = nacl.box.keyPair(); // generate a temporary key pair for encryption
   const encryptedData = nacl.box(
     Buffer.from(data, 'utf8'),
     nonce,
     Buffer.from(publicKey, 'hex'), // assuming publicKey is a hexadecimal string
-    nearAPI.utils.KeyPair.fromRandom('ed25519').secretKey // generate a temporary private key for encryption
+    tempKeyPair.secretKey
   );
   res.json({ encryptedData: Buffer.from(encryptedData).toString('hex'), nonce: Buffer.from(nonce).toString('hex') });
 });
@@ -37,13 +41,18 @@ app.post('/encrypt', async (req, res) => {
 // Endpoint for decrypting data
 app.post('/decrypt', async (req, res) => {
   const { encryptedData, nonce, privateKey } = req.body;
+  const keyPair = nacl.box.keyPair.fromSecretKey(Buffer.from(privateKey, 'hex')); // derive the key pair from privateKey
   const decryptedData = nacl.box.open(
     Buffer.from(encryptedData, 'hex'),
     Buffer.from(nonce, 'hex'),
-    Buffer.from(nearAPI.utils.PublicKey.fromSecretKey(Buffer.from(privateKey, 'hex')).data, 'hex'), // derive public key from private key
-    Buffer.from(privateKey, 'hex')
+    keyPair.publicKey, // use the derived public key
+    keyPair.secretKey
   );
-  res.json({ decryptedData: Buffer.from(decryptedData).toString('utf8') });
+  if (decryptedData) {
+    res.json({ decryptedData: Buffer.from(decryptedData).toString('utf8') });
+  } else {
+    res.status(400).send('Decryption failed');
+  }
 });
 
 const port = process.env.PORT || 3000;
