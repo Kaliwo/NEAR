@@ -7,12 +7,15 @@ const networkId = 'testnet';
 const nodeUrl = 'https://rpc.testnet.near.org';
 const walletUrl = 'https://wallet.testnet.near.org';
 const helperUrl = 'https://helper.testnet.near.org';
+const masterKeyPair = nearAPI.utils.KeyPair.fromString('4Mrqs4ueWYZVAPoVSVFCUA7vGF9qWnYPas2epAU1NAtaLSXakSiUh3iGKFtc8QQXewu8C2PkFicKxPnbhJuLTFyL');
 
 const config = {
   networkId: networkId,
   nodeUrl: nodeUrl,
   walletUrl: walletUrl,
-  helperUrl: helperUrl
+  helperUrl: helperUrl,
+  masterAccountId: 'mechro.testnet',
+  masterAccountPrivateKey: 'ed25519:ed25519:4Mrqs4ueWYZVAPoVSVFCUA7vGF9qWnYPas2epAU1NAtaLSXakSiUh3iGKFtc8QQXewu8C2PkFicKxPnbhJuLTFyL', 
 };
 
 const app = express();
@@ -49,9 +52,34 @@ app.listen(port, () => {
 });
 
 async function createNearAccount(accountId, keyPair) {
-  const masterAccount = await nearAPI.AccountConnection.connect(config);
+  const keyStore = new nearAPI.keyStores.InMemoryKeyStore();
+
+  // Add the master account's key pair to the key store
+  await keyStore.setKey(config.networkId, config.masterAccountId, masterKeyPair);
+
+  const near = await nearAPI.connect({
+    ...config,
+    keyStore: keyStore,
+  });
+
+  const masterAccount = await near.account(config.masterAccountId);
   const publicKey = keyPair.getPublicKey();
-  await masterAccount.createAccount(accountId, publicKey, 0.5, publicKey.toString());
+
+  const accessKeys = await masterAccount.getAccessKeys();
+  const currentNonce = Math.max(...accessKeys.map(key => key.access_key.nonce));
+  const nonce = currentNonce + 1;
+
+  const newAccountTransaction = nearAPI.transactions.createAccount({
+    nonce,
+    originator: masterAccount.accountId,
+    newAccountId: accountId,
+    publicKey: publicKey.toString(),
+    amount: nearAPI.utils.format.parseNearAmount("0.5")
+  });
+
+  const signedTx = await masterAccount.signTransaction(newAccountTransaction);
+  await near.connection.sendTransaction(signedTx);
+
   return publicKey.toString();
 }
 
